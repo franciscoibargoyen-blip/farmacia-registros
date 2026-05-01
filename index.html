@@ -1,278 +1,394 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Farmacia Luján — Registros</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
-  :root {
-    --bg:#f5f2ee;--surface:#fff;--surface2:#faf9f7;--border:#e4dfd8;
-    --text:#1a1714;--text-muted:#8a8078;
-    --egreso:#c0392b;--egreso-bg:#fdf3f2;
-    --ingreso:#1a6b3c;--ingreso-bg:#f0f8f4;
-    --accent:#8b5e3c;--accent-light:#f2ebe3;
-    --warn:#b7791f;--warn-bg:#fffbeb;
+// FARMACIA LUJÁN — Apps Script (v2: autocompletar + lista maestra)
+// Cambios vs versión anterior:
+//   - Maneja una hoja OPCIONES con la lista maestra de descripciones.
+//   - Sirve las opciones a la web para autocompletar.
+//   - Permite agregar opciones nuevas desde la web.
+//   - Función seedOpciones() que carga las 37 descripciones iniciales (correr 1 vez).
+//
+// Pasos para usar este archivo:
+//   1) Pegá todo este código en el editor de Apps Script (reemplazá lo que haya).
+//   2) Guardá (Ctrl+S).
+//   3) Ejecutá la función seedOpciones (de la lista de funciones, ▶ Ejecutar).
+//      Va a crear la hoja OPCIONES y cargar las 37 descripciones.
+//   4) Implementar → Administrar implementaciones → editar la activa →
+//      Versión: "Versión nueva" → Implementar.
+
+// ===== CONFIG =====
+var SHEET_ID = "1dR7M2FVP0j0_fW8Nru3tw6ml03AW4f9LFnXO6jaM7ts";
+
+var HOJA_EGRESOS  = "EGRESOS";
+var HOJA_INGRESOS = "INGRESOS";
+var HOJA_OPCIONES = "OPCIONES";
+
+var ENCABEZADOS = [
+  "FECHA", "TIPO", "CATEGORIA", "SUBCATEGORIA", "DESCRIPCION",
+  "MONTO", "ESTADO", "FECHA DE VTO", "METODO DE PAGO", "PAGO POR",
+  "DOCUMENTO", "NUMERO", "OBSERVACIONES"
+];
+
+var ENCABEZADOS_OPCIONES = ["TIPO", "CATEGORIA", "SUBCATEGORIA", "DESCRIPCION"];
+
+// Lista inicial extraída del Excel "Opciones de descripcion.xlsx"
+// + dos opciones default de Ingresos.
+var OPCIONES_SEED = [
+  ["Egresos", "Egresos operativos", "Servicios", "Alarma"],
+  ["Egresos", "Egresos operativos", "Servicios de terceros", "Servicio de limpieza"],
+  ["Egresos", "Egresos operativos", "Alquiler", "Alquiler"],
+  ["Egresos", "Egresos operativos", "Mantenimiento", "Insumos inmueble"],
+  ["Egresos", "Egresos operativos", "Gasto de personal", "Sueldos"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria Premium"],
+  ["Egresos", "Egresos operativos", "Utiles y papeleria", "Insumos"],
+  ["Egresos", "Egresos variables", "Compras", "Acofar"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria Cataneo"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria SUR"],
+  ["Egresos", "Egresos operativos", "Servicios", "Agua"],
+  ["Egresos", "Egresos operativos", "Servicios", "Luz"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria Moreno"],
+  ["Egresos", "Egresos operativos", "Servicios", "Internet"],
+  ["Egresos", "Egresos operativos", "Servicios de terceros", "Honorarios contador"],
+  ["Egresos", "Egresos operativos", "Gasto de personal", "Cargas sociales"],
+  ["Egresos", "Egresos operativos", "Servicios", "Agua (mineral)"],
+  ["Egresos", "Egresos operativos", "Mantenimiento", "Insumos limpieza"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria Paso"],
+  ["Egresos", "Egresos operativos", "Tramites", "Ministerio de trabajo"],
+  ["Egresos", "Egresos operativos", "Servicios", "Recarga celular"],
+  ["Egresos", "Egresos operativos", "Gastos bancario y financiero", "Fee Frances"],
+  ["Egresos", "Egresos operativos", "Servicios", "Municipal"],
+  ["Egresos", "Egresos operativos", "Servicios", "Gas"],
+  ["Egresos", "Egresos operativos", "Servicios", "Seguro"],
+  ["Egresos", "Egresos operativos", "Servicios", "Seguridad e Higiene"],
+  ["Egresos", "Egresos operativos", "Servicios de terceros", "Envios"],
+  ["Egresos", "Egresos ganancias", "Ganancias", "Ganancias"],
+  ["Egresos", "Egresos operativos", "Gastos de estructura", "Celular"],
+  ["Egresos", "Egresos operativos", "Cambio de cheques", "Cambio de cheques"],
+  ["Egresos", "Egresos operativos", "Gasto de personal", "Uniformes"],
+  ["Egresos", "Egresos operativos", "Gastos de estructura", "Computadora"],
+  ["Egresos", "Egresos operativos", "Mantenimiento", "Reparaciones"],
+  ["Egresos", "Egresos operativos", "Ventas", "Publicidad"],
+  ["Egresos", "Egresos operativos", "Impuestos", "Imp. a las ganancias"],
+  ["Egresos", "Egresos variables", "Compras", "Drogueria Latina"],
+  ["Egresos", "Egresos operativos", "Gasto de personal", "Adicionales"],
+  ["Ingresos", "Ingresos variables", "Ventas", "Ventas"],
+  ["Ingresos", "Otros ingresos", "Otros ingresos", "Varios"]
+];
+
+// ===== HELPERS =====
+function _abrirPlanilla() {
+  return SpreadsheetApp.openById(SHEET_ID);
+}
+
+function _abrirHojaOpciones(ss) {
+  ss = ss || _abrirPlanilla();
+  var hoja = ss.getSheetByName(HOJA_OPCIONES);
+  if (!hoja) {
+    hoja = ss.insertSheet(HOJA_OPCIONES);
+    hoja.appendRow(ENCABEZADOS_OPCIONES);
+    _formatearHeader(hoja, ENCABEZADOS_OPCIONES.length);
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:60px}
-  header{background:var(--text);color:var(--bg);padding:18px 28px 16px;display:flex;align-items:center;justify-content:space-between}
-  .header-left{display:flex;align-items:baseline;gap:12px}
-  header h1{font-family:'DM Serif Display',serif;font-size:20px;letter-spacing:.02em}
-  header .subtitle{font-size:11px;font-weight:300;opacity:.45;letter-spacing:.1em;text-transform:uppercase}
-  .sync-status{font-size:11px;display:flex;align-items:center;gap:6px;opacity:.7}
-  .sync-dot{width:7px;height:7px;border-radius:50%;background:#4caf50}
-  .sync-dot.offline{background:#ff9800}.sync-dot.error{background:#f44336}
-  .setup-banner{background:var(--warn-bg);border-bottom:1px solid #f6d860;padding:12px 28px;display:flex;align-items:center;gap:12px;font-size:13px}
-  .setup-banner a{color:var(--warn);font-weight:600;cursor:pointer;text-decoration:underline}
-  .setup-banner.hidden{display:none}
-  .tabs{display:flex;background:var(--text);padding:0 28px;gap:4px}
-  .tab-btn{background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:rgba(245,242,238,.4);padding:9px 18px;border-radius:6px 6px 0 0;transition:all .18s;letter-spacing:.04em}
-  .tab-btn.active{background:var(--bg);color:var(--text)}
-  .tab-btn:hover:not(.active){color:rgba(245,242,238,.75)}
-  .main{max-width:800px;margin:0 auto;padding:24px 20px 0}
-  .tipo-selector{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
-  .tipo-card{border:2px solid var(--border);border-radius:12px;padding:14px 18px;cursor:pointer;transition:all .18s;background:var(--surface);display:flex;align-items:center;gap:12px}
-  .tipo-card .icon{font-size:20px}
-  .tipo-card .label{font-weight:600;font-size:14px}
-  .tipo-card .sub{font-size:11px;color:var(--text-muted);margin-top:2px}
-  .tipo-card.egreso-card.selected{border-color:var(--egreso);background:var(--egreso-bg)}
-  .tipo-card.ingreso-card.selected{border-color:var(--ingreso);background:var(--ingreso-bg)}
-  .tipo-card:hover:not(.selected){border-color:#c8bfb5;background:var(--surface2)}
-  .form-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:20px}
-  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .form-grid .full{grid-column:1/-1}
-  .field label{display:block;font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted);margin-bottom:5px}
-  .field input,.field select,.field textarea{width:100%;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:9px 11px;outline:none;transition:border-color .15s;appearance:none}
-  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);background:#fff}
-  .field textarea{resize:vertical;min-height:64px}
-  .monto-wrap{position:relative}
-  .monto-wrap span{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;pointer-events:none}
-  .monto-wrap input{padding-left:24px;font-size:17px;font-weight:600}
-  .btn-submit{width:100%;background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:13px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.04em;transition:opacity .15s;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px}
-  .btn-submit:hover:not(:disabled){opacity:.85}
-  .btn-submit:disabled{opacity:.5;cursor:not-allowed}
-  .btn-submit.egreso{background:var(--egreso)}.btn-submit.ingreso{background:var(--ingreso)}
-  .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--text);color:var(--bg);padding:11px 22px;border-radius:50px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:all .28s;z-index:999}
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  .toast.egreso{background:var(--egreso)}.toast.ingreso{background:var(--ingreso)}.toast.ok{background:var(--ingreso)}.toast.warn{background:var(--warn)}
-  .summary-bar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px}
-  .sum-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center}
-  .sum-label{font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted)}
-  .sum-val{font-family:'DM Serif Display',serif;font-size:18px;margin-top:4px}
-  .sum-card.egreso .sum-val{color:var(--egreso)}.sum-card.ingreso .sum-val{color:var(--ingreso)}
-  .sum-val.pos{color:var(--ingreso)}.sum-val.neg{color:var(--egreso)}
-  .hist-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-  .hist-header h2{font-family:'DM Serif Display',serif;font-size:17px}
-  .hist-actions{display:flex;gap:8px}
-  .hist-filters{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
-  .filter-pill{border:1.5px solid var(--border);background:var(--surface);border-radius:20px;padding:4px 13px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;color:var(--text-muted)}
-  .filter-pill.active{border-color:var(--text);color:var(--text);background:var(--accent-light)}
-  .section-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);padding-bottom:7px;margin-bottom:12px}
-  .record-list{display:flex;flex-direction:column;gap:7px}
-  .record-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:12px;animation:slideIn .2s ease}
-  @keyframes slideIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-  .record-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-  .record-dot.egreso{background:var(--egreso)}.record-dot.ingreso{background:var(--ingreso)}
-  .record-info{flex:1;min-width:0}
-  .record-desc{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .record-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
-  .record-monto{font-family:'DM Serif Display',serif;font-size:16px;flex-shrink:0}
-  .record-monto.egreso{color:var(--egreso)}.record-monto.ingreso{color:var(--ingreso)}
-  .record-pending{font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:2px 6px;margin-left:6px;font-weight:600}
-  .btn-sm{background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:7px 14px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--text);transition:all .15s}
-  .btn-sm:hover{border-color:var(--accent);color:var(--accent)}
-  .empty-state{text-align:center;padding:36px 20px;color:var(--text-muted);font-size:14px}
-  .empty-state .emoji{font-size:30px;display:block;margin-bottom:10px}
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
-  .modal-overlay.hidden{display:none}
-  .modal{background:var(--surface);border-radius:16px;padding:28px;max-width:500px;width:100%;max-height:90vh;overflow-y:auto}
-  .modal h2{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:6px}
-  .modal .step{display:flex;gap:12px;margin:14px 0;padding:13px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)}
-  .modal .step-num{background:var(--text);color:var(--bg);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px}
-  .modal .step-text{font-size:13px;line-height:1.5}
-  .modal .step-text strong{font-weight:600}
-  .modal .step-text code{background:#f0ede9;border-radius:4px;padding:2px 6px;font-family:monospace;font-size:12px}
-  .url-input-wrap{display:flex;gap:8px;margin-top:16px}
-  .url-input-wrap input{flex:1;font-family:'DM Sans',sans-serif;font-size:13px;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;outline:none;color:var(--text);background:var(--surface2)}
-  .url-input-wrap input:focus{border-color:var(--accent)}
-  .btn-primary{background:var(--text);color:var(--bg);border:none;border-radius:8px;padding:9px 18px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .15s}
-  .btn-primary:hover{opacity:.85}
-  .modal-note{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5}
-  .add-option-wrap{margin-top:8px;padding:10px 12px;background:#fffbeb;border:1px solid #f6d860;border-radius:8px;display:flex;flex-direction:column;gap:8px}
-  .add-option-msg{font-size:12px;color:#856404;line-height:1.4}
-  .btn-add-option{align-self:flex-start;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
-  .btn-add-option:hover{opacity:.85}
-  .btn-add-option:disabled{opacity:.5;cursor:not-allowed}
-  @media(max-width:540px){.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:1}.summary-bar{grid-template-columns:1fr}header{padding:14px 18px}.main{padding:18px 14px 0}}
-</style>
-</head>
-<body>
-<header>
-  <div class="header-left">
-    <h1>Farmacia Luján</h1>
-    <span class="subtitle">Registros</span>
-  </div>
-  <div class="sync-status" id="sync-status">
-    <div class="sync-dot offline" id="sync-dot"></div>
-    <span id="sync-text">Sin configurar</span>
-  </div>
-</header>
+  if (hoja.getLastRow() === 0) {
+    hoja.appendRow(ENCABEZADOS_OPCIONES);
+    _formatearHeader(hoja, ENCABEZADOS_OPCIONES.length);
+  }
+  return hoja;
+}
 
-<div class="setup-banner" id="setup-banner">
-  <span>⚙️</span>
-  <span>Todavía no conectaste tu Google Sheet. <a onclick="abrirSetup()">Configurar ahora →</a></span>
-</div>
+function _formatearHeader(hoja, cantCols) {
+  var rango = hoja.getRange(1, 1, 1, cantCols);
+  rango.setBackground("#1a1714");
+  rango.setFontColor("#ffffff");
+  rango.setFontWeight("bold");
+  hoja.setFrozenRows(1);
+}
 
-<div class="tabs">
-  <button class="tab-btn active" onclick="showTab('cargar')">➕ Cargar</button>
-  <button class="tab-btn" onclick="showTab('historial')">📋 Historial</button>
-</div>
+function _jsonResponse(obj, callback) {
+  var body = JSON.stringify(obj);
+  if (callback) {
+    return ContentService
+      .createTextOutput(callback + "(" + body + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService
+    .createTextOutput(body)
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-<div id="tab-cargar" class="main">
-  <div class="tipo-selector">
-    <div class="tipo-card egreso-card selected" onclick="selectTipo('Egresos')" id="card-egreso">
-      <div class="icon">💸</div>
-      <div><div class="label">Egreso / Gasto</div><div class="sub">Compras, servicios, sueldos...</div></div>
-    </div>
-    <div class="tipo-card ingreso-card" onclick="selectTipo('Ingresos')" id="card-ingreso">
-      <div class="icon">💰</div>
-      <div><div class="label">Ingreso / Venta</div><div class="sub">Ventas, cobros, otros...</div></div>
-    </div>
-  </div>
-  <div class="form-card">
-    <form id="mainForm" onsubmit="guardarRegistro(event)">
-      <div class="form-grid">
-        <div class="field"><label>Fecha *</label><input type="date" id="f-fecha" required></div>
-        <div class="field"><label>Monto ($) *</label><div class="monto-wrap"><span>$</span><input type="number" id="f-monto" placeholder="0.00" step="0.01" min="0" required></div></div>
-        <div class="field full">
-          <label>Descripción *</label>
-          <input type="text" id="f-descripcion" list="descs-list" placeholder="Empezá a tipear o elegí de la lista..." autocomplete="off" oninput="onDescripcionInput()" required>
-          <datalist id="descs-list"></datalist>
-          <div id="add-option-wrap" class="add-option-wrap" style="display:none">
-            <span class="add-option-msg">Esta descripción no está en la lista. Completá categoría y subcategoría y guardala para futuras cargas.</span>
-            <button type="button" class="btn-add-option" id="btn-add-option" onclick="agregarOpcionLista()">+ Agregar a la lista</button>
-          </div>
-        </div>
-        <div class="field"><label>Categoría *</label><select id="f-categoria" onchange="onCategoriaChange()" required><option value="">— Seleccionar —</option></select></div>
-        <div class="field"><label>Subcategoría *</label><select id="f-subcategoria" onchange="onSubcatChange()" required><option value="">— Seleccionar —</option></select></div>
-        <div class="field"><label>Método de Pago *</label><select id="f-metodo" required><option value="">— Seleccionar —</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de crédito</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cheque</option><option>E-cheq</option><option>QR</option><option>Resumen</option><option>Obra social</option></select></div>
-        <div class="field" id="field-pagopor"><label>Pago Por *</label><select id="f-pagopor" required><option value="">— Seleccionar —</option><option>Francisco</option><option>Mercedes</option><option>Edgardo</option><option>Resumen</option></select></div>
-        <div class="field"><label>Estado *</label><select id="f-estado" onchange="onEstadoChange()" required><option value="Pago">Pago</option><option value="Pendiente">Pendiente</option><option value="INGRESO">Ingreso</option></select></div>
-        <div class="field"><label id="lbl-fechavto">Fecha Vto. (opcional)</label><input type="date" id="f-fechavto"></div>
-        <div class="field"><label>Documento</label><select id="f-documento"><option value="">— Ninguno —</option><option>FACTURA</option><option>REMITO</option><option>RECIBO</option><option>TICKET</option><option>RESUMEN</option><option>OTROS</option></select></div>
-        <div class="field"><label>Número doc.</label><input type="text" id="f-numero" placeholder="Ej: 24176"></div>
-        <div class="field full"><label>Observaciones</label><textarea id="f-obs" placeholder="Notas adicionales..."></textarea></div>
-      </div>
-      <button type="submit" class="btn-submit egreso" id="btn-submit">
-        <div class="spinner" id="spinner"></div>
-        <span id="btn-text">Guardar Egreso</span>
-      </button>
-    </form>
-  </div>
-</div>
+// ===== ENDPOINTS =====
+function doPost(e) {
+  try {
+    var body = (e && e.postData && e.postData.contents)
+      ? e.postData.contents
+      : ((e && e.parameter && e.parameter.data) ? e.parameter.data : "");
 
-<div id="tab-historial" class="main" style="display:none">
-  <div class="summary-bar">
-    <div class="sum-card egreso"><div class="sum-label">Egresos</div><div class="sum-val" id="sum-egreso">$0</div></div>
-    <div class="sum-card ingreso"><div class="sum-label">Ingresos</div><div class="sum-val" id="sum-ingreso">$0</div></div>
-    <div class="sum-card"><div class="sum-label">Balance</div><div class="sum-val" id="sum-balance">$0</div></div>
-  </div>
-  <div class="hist-header">
-    <h2>Registros</h2>
-    <div class="hist-actions">
-      <button class="btn-sm" onclick="cargarDesdeSheet()">🔄 Actualizar</button>
-      <button class="btn-sm" onclick="exportarCSV()">⬇ CSV</button>
-    </div>
-  </div>
-  <div class="hist-filters">
-    <button class="filter-pill active" onclick="filtrar('todos',this)">Todos</button>
-    <button class="filter-pill" onclick="filtrar('Egresos',this)">Egresos</button>
-    <button class="filter-pill" onclick="filtrar('Ingresos',this)">Ingresos</button>
-    <button class="filter-pill" onclick="filtrar('Pendiente',this)">Pendientes</button>
-  </div>
-  <div class="section-label" id="hist-count">0 registros</div>
-  <div class="record-list" id="record-list"><div class="empty-state"><span class="emoji">📝</span>Aún no hay registros.</div></div>
-</div>
+    if (!body) {
+      return _jsonResponse({ ok: false, error: "Body vacío. Revisar fetch del frontend." });
+    }
 
-<div class="modal-overlay hidden" id="modal-overlay">
-  <div class="modal">
-    <h2>Conectar Google Sheet</h2>
-    <p style="font-size:13px;color:var(--text-muted);margin-top:4px">Seguí estos pasos una sola vez. Tarda unos 5 minutos.</p>
-    <div class="step"><div class="step-num">1</div><div class="step-text">Abrí <strong><a href="https://sheets.new" target="_blank">sheets.new</a></strong> para crear una planilla nueva. Nombrala <strong>FARMACIA LUJAN-REGISTROS</strong>.</div></div>
-    <div class="step"><div class="step-num">2</div><div class="step-text">En el menú, hacé clic en <strong>Extensiones → Apps Script</strong>.</div></div>
-    <div class="step"><div class="step-num">3</div><div class="step-text">Borrá todo el código que aparece y pegá el contenido del archivo <code>apps_script.gs</code> que te descargué junto con este HTML. Guardá con <strong>Ctrl+S</strong>.</div></div>
-    <div class="step"><div class="step-num">4</div><div class="step-text">Hacé clic en <strong>Implementar → Nueva implementación</strong>. Tipo: <strong>Aplicación web</strong>. Acceso: <strong>Cualquier persona</strong>. Hacé clic en <strong>Implementar</strong> y autorizá con tu cuenta Google.</div></div>
-    <div class="step"><div class="step-num">5</div><div class="step-text">Copiá la <strong>URL de la aplicación web</strong> que aparece y pegala acá abajo.</div></div>
-    <div class="url-input-wrap">
-      <input type="url" id="script-url-input" placeholder="https://script.google.com/macros/s/...">
-      <button class="btn-primary" onclick="guardarURL()">Conectar</button>
-    </div>
-    <p class="modal-note">⚠ La URL queda guardada en este dispositivo. Si abrís la herramienta desde otro celular o compu vas a tener que pegarla de nuevo (es la misma URL).</p>
-    <p class="modal-note" style="margin-top:8px"><a onclick="cerrarSetup()" style="color:var(--accent);cursor:pointer;font-weight:600">Cerrar</a></p>
-  </div>
-</div>
+    var data = JSON.parse(body);
 
-<div class="toast" id="toast"></div>
+    // Ruteo según action
+    if (data.action === "addOption") {
+      var result = agregarOpcion(data);
+      return _jsonResponse(result);
+    }
 
-<script>
-// === Configuración ===
-const SCRIPT_URL_HARDCODED='https://script.google.com/macros/s/AKfycbwhjATgcW1WOAHWOe7VrUzBECxJQfaeHytChmpPt9Ye0p1p2XHvyll75j6zWZQLd1jb/exec';
-let tipo='Egresos',records=JSON.parse(localStorage.getItem('fl_records')||'[]'),filtroActivo='todos',scriptURL=SCRIPT_URL_HARDCODED;
-let OPCIONES_LIST=[];
-let CATS={Egresos:{},Ingresos:{}};
-localStorage.removeItem('fl_script_url');
-window.onload=()=>{document.getElementById('f-fecha').value=new Date().toISOString().split('T')[0];selectTipo('Egresos');updateSyncUI();renderHistorial();if(scriptURL)cargarDesdeSheet()};
+    if (data.action === "updateRecord") {
+      var resultUpd = actualizarRegistro(data);
+      return _jsonResponse(resultUpd);
+    }
 
-// === Estado UI ===
-function updateSyncUI(){const b=document.getElementById('setup-banner'),d=document.getElementById('sync-dot'),t=document.getElementById('sync-text');if(scriptURL){b.classList.add('hidden');d.className='sync-dot';t.textContent='Conectado a Drive'}else{b.classList.remove('hidden');d.className='sync-dot offline';t.textContent='Sin configurar'}}
-function setSyncLoading(){document.getElementById('sync-dot').className='sync-dot offline';document.getElementById('sync-text').textContent='Sincronizando...'}
-function setSyncOk(){document.getElementById('sync-dot').className='sync-dot';document.getElementById('sync-text').textContent='Conectado a Drive'}
-function setSyncError(){document.getElementById('sync-dot').className='sync-dot error';document.getElementById('sync-text').textContent='Error de conexión'}
-function abrirSetup(){document.getElementById('modal-overlay').classList.remove('hidden')}
-function cerrarSetup(){document.getElementById('modal-overlay').classList.add('hidden')}
-function guardarURL(){const u=document.getElementById('script-url-input').value.trim();if(!u.startsWith('https://script.google.com')){showToast('⚠ URL inválida','warn');return}scriptURL=u;localStorage.setItem('fl_script_url',u);cerrarSetup();updateSyncUI();showToast('✓ Conectado a Google Sheet','ok');cargarDesdeSheet()}
+    // Default: guardar registro
+    guardarRegistro(data);
+    return _jsonResponse({ ok: true });
+  } catch (err) {
+    console.error("doPost error: " + err);
+    return _jsonResponse({ ok: false, error: err.toString() });
+  }
+}
 
-// === Reconstrucción de selects desde OPCIONES_LIST ===
-function buildCatsFromOpciones(){CATS={Egresos:{},Ingresos:{}};OPCIONES_LIST.forEach(o=>{if(!o.tipo||!CATS[o.tipo])return;if(!CATS[o.tipo][o.categoria])CATS[o.tipo][o.categoria]={};if(!CATS[o.tipo][o.categoria][o.subcategoria])CATS[o.tipo][o.categoria][o.subcategoria]=[];if(!CATS[o.tipo][o.categoria][o.subcategoria].includes(o.descripcion))CATS[o.tipo][o.categoria][o.subcategoria].push(o.descripcion)})}
-function rebuildCategoriaSelect(){const sel=document.getElementById('f-categoria');const cur=sel.value;sel.innerHTML='<option value="">— Seleccionar —</option>';Object.keys(CATS[tipo]||{}).sort().forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o)});if(cur&&CATS[tipo]&&CATS[tipo][cur])sel.value=cur}
-function rebuildSubcategoriaSelect(){const cat=document.getElementById('f-categoria').value;const sel=document.getElementById('f-subcategoria');const cur=sel.value;sel.innerHTML='<option value="">— Seleccionar —</option>';if(!cat||!CATS[tipo]||!CATS[tipo][cat])return;Object.keys(CATS[tipo][cat]).sort().forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o)});if(cur&&CATS[tipo][cat][cur])sel.value=cur}
-function rebuildDescDatalist(){const dl=document.getElementById('descs-list');dl.innerHTML='';const cat=document.getElementById('f-categoria').value;const sub=document.getElementById('f-subcategoria').value;let opts=OPCIONES_LIST.filter(o=>o.tipo===tipo);if(cat)opts=opts.filter(o=>o.categoria===cat);if(sub)opts=opts.filter(o=>o.subcategoria===sub);const unique=[...new Set(opts.map(o=>o.descripcion))].sort();unique.forEach(d=>{const o=document.createElement('option');o.value=d;dl.appendChild(o)})}
+function doGet(e) {
+  try {
+    var p = (e && e.parameter) || {};
+    var callback = p.callback || null;
 
-// === Selección de tipo (Egreso / Ingreso) ===
-function selectTipo(t){tipo=t;document.getElementById('card-egreso').classList.toggle('selected',t==='Egresos');document.getElementById('card-ingreso').classList.toggle('selected',t==='Ingresos');const btn=document.getElementById('btn-submit');document.getElementById('btn-text').textContent=t==='Egresos'?'Guardar Egreso':'Guardar Ingreso';btn.className='btn-submit '+(t==='Egresos'?'egreso':'ingreso');document.getElementById('f-estado').value=t==='Egresos'?'Pago':'INGRESO';const ppF=document.getElementById('field-pagopor'),ppS=document.getElementById('f-pagopor');if(t==='Egresos'){ppF.style.display='';ppS.required=true}else{ppF.style.display='none';ppS.required=false;ppS.value=''}document.getElementById('f-descripcion').value='';hideAddOption();rebuildCategoriaSelect();document.getElementById('f-subcategoria').innerHTML='<option value="">— Seleccionar —</option>';const cats=Object.keys(CATS[tipo]||{});if(cats.length===1){document.getElementById('f-categoria').value=cats[0];onCategoriaChange()}rebuildDescDatalist();onEstadoChange()}
+    // Guardar vía GET (JSONP fallback)
+    if (p.data) {
+      var data = JSON.parse(decodeURIComponent(p.data));
+      guardarRegistro(data);
+      return _jsonResponse({ ok: true }, callback);
+    }
 
-// === Cascada categoría/subcategoría/descripción ===
-function onCategoriaChange(){rebuildSubcategoriaSelect();rebuildDescDatalist();const cat=document.getElementById('f-categoria').value;if(cat&&CATS[tipo]&&CATS[tipo][cat]){const subs=Object.keys(CATS[tipo][cat]);if(subs.length===1){document.getElementById('f-subcategoria').value=subs[0];onSubcatChange();return}}checkAddOption()}
-function onSubcatChange(){rebuildDescDatalist();checkAddOption()}
-function onDescripcionInput(){const v=document.getElementById('f-descripcion').value.trim();if(!v){hideAddOption();return}const match=OPCIONES_LIST.find(o=>o.tipo===tipo&&o.descripcion.toLowerCase()===v.toLowerCase());if(match){const catSel=document.getElementById('f-categoria');const subSel=document.getElementById('f-subcategoria');if(catSel.value!==match.categoria){catSel.value=match.categoria;rebuildSubcategoriaSelect()}if(subSel.value!==match.subcategoria)subSel.value=match.subcategoria;hideAddOption()}else checkAddOption()}
+    // Leer todo: registros + opciones
+    if (p.action === "data") {
+      var datos = leerDatos();
+      var opciones = getOpciones();
+      return _jsonResponse({ ok: true, data: datos, opciones: opciones }, callback);
+    }
 
-// === "+ Agregar a la lista" ===
-function checkAddOption(){const desc=document.getElementById('f-descripcion').value.trim();if(!desc){hideAddOption();return}const exists=OPCIONES_LIST.some(o=>o.tipo===tipo&&o.descripcion.toLowerCase()===desc.toLowerCase());if(exists)hideAddOption();else showAddOption()}
-function showAddOption(){document.getElementById('add-option-wrap').style.display=''}
-function hideAddOption(){document.getElementById('add-option-wrap').style.display='none'}
-async function agregarOpcionLista(){const desc=document.getElementById('f-descripcion').value.trim();const cat=document.getElementById('f-categoria').value;const sub=document.getElementById('f-subcategoria').value;if(!desc||!cat||!sub){showToast('⚠ Completá descripción, categoría y subcategoría primero','warn');return}const btn=document.getElementById('btn-add-option');btn.disabled=true;try{const res=await fetch(scriptURL,{method:'POST',body:JSON.stringify({action:'addOption',tipo,categoria:cat,subcategoria:sub,descripcion:desc})});const json=await res.json();if(json.ok){OPCIONES_LIST.push({tipo,categoria:cat,subcategoria:sub,descripcion:desc});buildCatsFromOpciones();rebuildCategoriaSelect();document.getElementById('f-categoria').value=cat;rebuildSubcategoriaSelect();document.getElementById('f-subcategoria').value=sub;rebuildDescDatalist();hideAddOption();showToast(json.duplicate?'✓ Ya estaba en la lista':'✓ Agregada a la lista','ok')}else throw new Error(json.error||'Error desconocido')}catch(err){showToast('⚠ No se pudo agregar: '+err.message,'warn')}finally{btn.disabled=false}}
+    // Solo opciones
+    if (p.action === "options") {
+      var ops = getOpciones();
+      return _jsonResponse({ ok: true, opciones: ops }, callback);
+    }
 
-// === Estado / Fecha Vto condicional ===
-function onEstadoChange(){const estado=document.getElementById('f-estado').value;const fv=document.getElementById('f-fechavto');const lbl=document.getElementById('lbl-fechavto');if(estado==='Pendiente'){fv.required=true;lbl.textContent='Fecha Vto. *'}else{fv.required=false;lbl.textContent='Fecha Vto. (opcional)'}}
+    // Health check
+    return _jsonResponse({ ok: true, status: "ready", sheet: SHEET_ID }, callback);
+  } catch (err) {
+    console.error("doGet error: " + err);
+    return _jsonResponse(
+      { ok: false, error: err.toString() },
+      (e && e.parameter && e.parameter.callback) || null
+    );
+  }
+}
 
-// === Guardar registro ===
-async function guardarRegistro(e){e.preventDefault();const monto=parseFloat(document.getElementById('f-monto').value);if(!monto||monto<=0){showToast('⚠ Ingresá un monto válido','warn');return}const reg={id:Date.now(),fecha:document.getElementById('f-fecha').value,tipo,categoria:document.getElementById('f-categoria').value,subcategoria:document.getElementById('f-subcategoria').value,descripcion:document.getElementById('f-descripcion').value.trim(),monto,estado:document.getElementById('f-estado').value,fechaVto:document.getElementById('f-fechavto').value||null,metodoPago:document.getElementById('f-metodo').value,pagoPor:document.getElementById('f-pagopor').value,documento:document.getElementById('f-documento').value,numero:document.getElementById('f-numero').value,observaciones:document.getElementById('f-obs').value,synced:false};records.unshift(reg);localStorage.setItem('fl_records',JSON.stringify(records));if(scriptURL){setBtnLoading(true);setSyncLoading();try{const res=await fetch(scriptURL,{method:'POST',body:JSON.stringify(reg)});const json=await res.json();if(json.ok){reg.synced=true;localStorage.setItem('fl_records',JSON.stringify(records));setSyncOk();showToast('✓ Guardado en Google Sheet — $'+fmt(monto),tipo==='Egresos'?'egreso':'ingreso')}else throw new Error(json.error)}catch(err){setSyncError();showToast('⚠ Guardado local. Sin conexión a Sheet.','warn')}finally{setBtnLoading(false)}}else showToast('✓ Guardado localmente — $'+fmt(monto),tipo==='Egresos'?'egreso':'ingreso');e.target.reset();document.getElementById('f-fecha').value=new Date().toISOString().split('T')[0];selectTipo(tipo);renderHistorial()}
-function setBtnLoading(on){document.getElementById('btn-submit').disabled=on;document.getElementById('spinner').style.display=on?'block':'none'}
+// ===== LÓGICA: REGISTROS =====
+function guardarRegistro(data) {
+  var ss = _abrirPlanilla();
+  console.log("Guardando en planilla: " + ss.getName() + " (" + ss.getId() + ")");
 
-// === Cargar desde Sheet (registros + opciones) ===
-async function cargarDesdeSheet(){if(!scriptURL)return;setSyncLoading();try{const res=await fetch(scriptURL+'?action=data');const json=await res.json();if(json.ok){if(json.opciones&&Array.isArray(json.opciones)){OPCIONES_LIST=json.opciones;buildCatsFromOpciones();rebuildCategoriaSelect();rebuildSubcategoriaSelect();rebuildDescDatalist()}if(json.data){const rem=[];['EGRESOS','INGRESOS'].forEach(sn=>{const t=sn==='EGRESOS'?'Egresos':'Ingresos';(json.data[sn]||[]).forEach((row,i)=>rem.push({id:sn+'_'+i,fecha:row['FECHA']||'',tipo:t,categoria:row['CATEGORIA']||'',subcategoria:row['SUBCATEGORIA']||'',descripcion:row['DESCRIPCION']||'',monto:parseFloat(row['MONTO'])||0,estado:row['ESTADO']||'',fechaVto:row['FECHA DE VTO']||null,metodoPago:row['METODO DE PAGO']||'',pagoPor:row['PAGO POR']||'',documento:row['DOCUMENTO']||'',numero:row['NUMERO']||'',observaciones:row['OBSERVACIONES']||'',synced:true}))});const lu=records.filter(r=>!r.synced);records=[...rem,...lu];records.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));localStorage.setItem('fl_records',JSON.stringify(records));renderHistorial()}setSyncOk()}else setSyncError()}catch(err){setSyncError()}}
+  var nombreHoja = (data.tipo === "Ingresos") ? HOJA_INGRESOS : HOJA_EGRESOS;
+  var hoja = ss.getSheetByName(nombreHoja);
 
-// === Historial / utilidades ===
-function renderHistorial(){const fil=filtroActivo==='todos'?records:filtroActivo==='Pendiente'?records.filter(r=>r.estado==='Pendiente'):records.filter(r=>r.tipo===filtroActivo);const eg=records.filter(r=>r.tipo==='Egresos').reduce((s,r)=>s+r.monto,0),ing=records.filter(r=>r.tipo==='Ingresos').reduce((s,r)=>s+r.monto,0),bal=ing-eg;document.getElementById('sum-egreso').textContent='$'+fmt(eg);document.getElementById('sum-ingreso').textContent='$'+fmt(ing);const be=document.getElementById('sum-balance');be.textContent=(bal<0?'-$':'$')+fmt(Math.abs(bal));be.className='sum-val '+(bal>=0?'pos':'neg');document.getElementById('hist-count').textContent=fil.length+' registro'+(fil.length!==1?'s':'');const list=document.getElementById('record-list');if(!fil.length){list.innerHTML='<div class="empty-state"><span class="emoji">📝</span>No hay registros para mostrar.</div>';return}list.innerHTML=fil.map(r=>`<div class="record-item"><div class="record-dot ${r.tipo==='Egresos'?'egreso':'ingreso'}"></div><div class="record-info"><div class="record-desc">${r.descripcion||r.subcategoria||r.categoria}${r.estado==='Pendiente'?'<span class="record-pending">PENDIENTE</span>':''}</div><div class="record-meta">${fmtF(r.fecha)} · ${r.categoria}${r.subcategoria?' › '+r.subcategoria:''}${r.metodoPago?' · '+r.metodoPago:''}${r.observaciones?' · '+r.observaciones:''}</div></div><div class="record-monto ${r.tipo==='Egresos'?'egreso':'ingreso'}">${r.tipo==='Egresos'?'-':'+'}$${fmt(r.monto)}</div></div>`).join('')}
-function filtrar(f,el){filtroActivo=f;document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderHistorial()}
-function exportarCSV(){if(!records.length){showToast('No hay registros','warn');return}const cols=['FECHA','TIPO','CATEGORIA','SUBCATEGORIA','DESCRIPCION','MONTO','ESTADO','FECHA VTO','METODO DE PAGO','PAGO POR','DOCUMENTO','NUMERO','OBSERVACIONES'],rows=records.map(r=>[r.fecha,r.tipo,r.categoria,r.subcategoria,r.descripcion,r.monto,r.estado,r.fechaVto||'',r.metodoPago,r.pagoPor,r.documento,r.numero,r.observaciones].map(v=>`"${(v||'').toString().replace(/"/g,'""')}"`).join(','));const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+[cols.join(','),...rows].join('\n')],{type:'text/csv;charset=utf-8'}));a.download='FarmaciaLujan_'+new Date().toISOString().slice(0,10)+'.csv';a.click();showToast('✓ CSV exportado','ok')}
-function showTab(t){document.getElementById('tab-cargar').style.display=t==='cargar'?'':'none';document.getElementById('tab-historial').style.display=t==='historial'?'':'none';document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',(i===0&&t==='cargar')||(i===1&&t==='historial')));if(t==='historial')renderHistorial()}
-function fmt(n){return new Intl.NumberFormat('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n)}
-function fmtF(d){if(!d)return'';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`}
-function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+(type||'')+' show';setTimeout(()=>t.classList.remove('show'),3000)}
-</script>
-</body>
-</html>
+  if (!hoja) {
+    hoja = ss.insertSheet(nombreHoja);
+    hoja.appendRow(ENCABEZADOS);
+    _formatearHeader(hoja, ENCABEZADOS.length);
+  } else if (hoja.getLastRow() === 0) {
+    hoja.appendRow(ENCABEZADOS);
+    _formatearHeader(hoja, ENCABEZADOS.length);
+  }
+
+  var fecha = data.fecha ? new Date(data.fecha + "T00:00:00") : new Date();
+  var fechaVto = data.fechaVto ? new Date(data.fechaVto + "T00:00:00") : "";
+
+  hoja.appendRow([
+    fecha,
+    data.tipo || "",
+    data.categoria || "",
+    data.subcategoria || "",
+    data.descripcion || "",
+    parseFloat(data.monto) || 0,
+    data.estado || "",
+    fechaVto,
+    data.metodoPago || "",
+    data.pagoPor || "",
+    data.documento || "",
+    data.numero || "",
+    data.observaciones || ""
+  ]);
+
+  console.log("OK: fila agregada en " + nombreHoja);
+}
+
+// Actualiza una fila existente en EGRESOS o INGRESOS.
+// data: { sheet: "EGRESOS"|"INGRESOS", row: <numero de fila 1-indexed, donde 1 es header>, fields: { ...campos a sobreescribir... } }
+function actualizarRegistro(data) {
+  var nombreHoja = data.sheet;
+  if (nombreHoja !== HOJA_EGRESOS && nombreHoja !== HOJA_INGRESOS) {
+    return { ok: false, error: "Hoja inválida: " + nombreHoja };
+  }
+  var fila = parseInt(data.row, 10);
+  if (!fila || fila < 2) {
+    return { ok: false, error: "Fila inválida: " + data.row };
+  }
+
+  var ss = _abrirPlanilla();
+  var hoja = ss.getSheetByName(nombreHoja);
+  if (!hoja) {
+    return { ok: false, error: "No existe la hoja " + nombreHoja };
+  }
+  if (fila > hoja.getLastRow()) {
+    return { ok: false, error: "Fila fuera de rango (" + fila + " > " + hoja.getLastRow() + ")" };
+  }
+
+  // Verificar que los encabezados sean los esperados
+  var headerRow = hoja.getRange(1, 1, 1, ENCABEZADOS.length).getValues()[0];
+
+  // Mapeo nombre-frontend -> nombre-columna
+  var fieldMap = {
+    fecha: "FECHA",
+    tipo: "TIPO",
+    categoria: "CATEGORIA",
+    subcategoria: "SUBCATEGORIA",
+    descripcion: "DESCRIPCION",
+    monto: "MONTO",
+    estado: "ESTADO",
+    fechaVto: "FECHA DE VTO",
+    metodoPago: "METODO DE PAGO",
+    pagoPor: "PAGO POR",
+    documento: "DOCUMENTO",
+    numero: "NUMERO",
+    observaciones: "OBSERVACIONES"
+  };
+
+  var fields = data.fields || {};
+  var actualizados = [];
+
+  Object.keys(fields).forEach(function (k) {
+    var colName = fieldMap[k];
+    if (!colName) return;
+    var colIdx = headerRow.indexOf(colName);
+    if (colIdx < 0) return;
+    var valor = fields[k];
+    if (k === "fecha" || k === "fechaVto") {
+      valor = valor ? new Date(valor + "T00:00:00") : "";
+    } else if (k === "monto") {
+      valor = parseFloat(valor) || 0;
+    }
+    hoja.getRange(fila, colIdx + 1).setValue(valor);
+    actualizados.push(colName);
+  });
+
+  console.log("Update OK: " + nombreHoja + "!fila " + fila + " — campos: " + actualizados.join(", "));
+  return { ok: true, updated: actualizados };
+}
+
+function leerDatos() {
+  var ss = _abrirPlanilla();
+  var result = {};
+  [HOJA_EGRESOS, HOJA_INGRESOS].forEach(function (nombre) {
+    var hoja = ss.getSheetByName(nombre);
+    if (!hoja) { result[nombre] = []; return; }
+    var filas = hoja.getDataRange().getValues();
+    if (filas.length <= 1) { result[nombre] = []; return; }
+    var encabezados = filas[0];
+    result[nombre] = filas.slice(1).map(function (fila) {
+      var obj = {};
+      encabezados.forEach(function (h, i) {
+        obj[h] = (fila[i] instanceof Date)
+          ? Utilities.formatDate(fila[i], "America/Argentina/Buenos_Aires", "yyyy-MM-dd")
+          : fila[i];
+      });
+      return obj;
+    });
+  });
+  return result;
+}
+
+// ===== LÓGICA: OPCIONES =====
+function getOpciones() {
+  var hoja = _abrirHojaOpciones();
+  if (hoja.getLastRow() <= 1) return [];
+  var filas = hoja.getRange(2, 1, hoja.getLastRow() - 1, 4).getValues();
+  return filas
+    .map(function (f) {
+      return {
+        tipo: String(f[0] || "").trim(),
+        categoria: String(f[1] || "").trim(),
+        subcategoria: String(f[2] || "").trim(),
+        descripcion: String(f[3] || "").trim()
+      };
+    })
+    .filter(function (o) { return o.descripcion; });
+}
+
+function agregarOpcion(data) {
+  var tipo = String(data.tipo || "").trim();
+  var cat = String(data.categoria || "").trim();
+  var sub = String(data.subcategoria || "").trim();
+  var desc = String(data.descripcion || "").trim();
+
+  if (!tipo || !cat || !sub || !desc) {
+    return { ok: false, error: "Faltan datos: tipo, categoria, subcategoria y descripcion son obligatorios." };
+  }
+
+  var existentes = getOpciones();
+  var dup = existentes.some(function (o) {
+    return o.tipo.toLowerCase() === tipo.toLowerCase()
+        && o.descripcion.toLowerCase() === desc.toLowerCase();
+  });
+  if (dup) {
+    return { ok: true, duplicate: true };
+  }
+
+  var hoja = _abrirHojaOpciones();
+  hoja.appendRow([tipo, cat, sub, desc]);
+  console.log("Opción agregada: " + [tipo, cat, sub, desc].join(" / "));
+  return { ok: true };
+}
+
+// ===== ONE-SHOT: SEED =====
+// Correr UNA SOLA VEZ desde el editor para cargar las 37 opciones iniciales.
+// Si ya hay data en OPCIONES, este seed la limpia y la rearma desde cero.
+function seedOpciones() {
+  var hoja = _abrirHojaOpciones();
+  if (hoja.getLastRow() > 1) {
+    hoja.getRange(2, 1, hoja.getLastRow() - 1, 4).clearContent();
+  }
+  OPCIONES_SEED.forEach(function (row) {
+    hoja.appendRow(row);
+  });
+  console.log("Seed OK: " + OPCIONES_SEED.length + " opciones cargadas en hoja OPCIONES.");
+}
+
+// ===== DIAGNÓSTICO Y TEST (igual que antes) =====
+function diagnostico() {
+  console.log("=== DIAGNÓSTICO ===");
+  try {
+    var ss = _abrirPlanilla();
+    console.log("Planilla destino: " + ss.getName());
+    console.log("ID destino:       " + ss.getId());
+    console.log("URL:              " + ss.getUrl());
+    console.log("Hojas presentes:  " + ss.getSheets().map(function (h) { return h.getName(); }).join(", "));
+    var ops = getOpciones();
+    console.log("Opciones cargadas: " + ops.length);
+  } catch (err) {
+    console.error("ERROR: " + err);
+  }
+  console.log("=== FIN DIAGNÓSTICO ===");
+}
+
+function testGuardar() {
+  guardarRegistro({
+    fecha: Utilities.formatDate(new Date(), "America/Argentina/Buenos_Aires", "yyyy-MM-dd"),
+    tipo: "Egresos",
+    categoria: "Egresos operativos",
+    subcategoria: "Gastos varios",
+    descripcion: "Varios",
+    monto: 100,
+    estado: "Pago",
+    metodoPago: "Efectivo",
+    pagoPor: "Francisco",
+    observaciones: "TEST desde Apps Script"
+  });
+}
